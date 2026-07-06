@@ -1,0 +1,50 @@
+# Python
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.log
+*.db
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# OS
+Thumbs.db
+
+# Project specific
+data/raw/
+chroma_data/
+ollama_models/
+.env
+.env.local
+
+# Data files (volume)
+*.pdf
+*.xlsx
+*.docx
+*.zip
+*.tar.gz
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Streamlit
+.streamlit/
+
+# MCP / Ollama
+mcp_servers/
