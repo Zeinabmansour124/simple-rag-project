@@ -111,14 +111,34 @@ def add_to_vector_db(chunks, embedding_model, persist_directory="chroma_db", col
             logging.error(f"Erreur lors de la création de la vector DB : {str(e)}")
             raise
 
-def retrieve_from_vector_db(vector_db, model):
+#def retrieve_from_vector_db(vector_db, model):
+#    llm = ChatOllama(model=model)
+#    QUERY_PROMPT = PromptTemplate(
+#        input_variables=["question"],
+#        template=""" You are an AI language model assistant. Your task is to generate five 
+#        different versions of the given user question to retrieve relevant documents from 
+#        the vector database. By generating multiple versions of the question, your goal is 
+#        to help the user overcome some of the limitations of the distance-based similarity search.
+#        Provide these alternative questions separated by new lines.
+#        Original question: {question}
+#        """ 
+#    )
+#    retriever = MultiQueryRetriever.from_llm(
+#        vector_db.as_retriever(),
+#        llm=llm,
+#        prompt=QUERY_PROMPT,
+#    )
+#    return retriever, llm
+def retrieve_from_vector_db_java(vector_db, model):
     llm = ChatOllama(model=model)
     QUERY_PROMPT = PromptTemplate(
         input_variables=["question"],
-        template=""" You are an AI language model assistant. Your task is to generate five 
-        different versions of the given user question to retrieve relevant documents from 
-        the vector database. By generating multiple versions of the question, your goal is 
-        to help the user overcome some of the limitations of the distance-based similarity search.
+        template=""" You are an AI language model assistant specialized in Java code analysis.
+        Your task is to generate five different versions of the given user question to retrieve
+        relevant code snippets from the vector database. By generating multiple versions of the
+        question, your goal is to help the user overcome some of the limitations of the
+        distance-based similarity search, taking into account class names, method names, and
+        common code-review terminology (bug, error, exception, refactor, best practice).
         Provide these alternative questions separated by new lines.
         Original question: {question}
         """ 
@@ -132,9 +152,19 @@ def retrieve_from_vector_db(vector_db, model):
 
 def generate_response(retriever, llm, question):
     template = """
-        Answer the question based only on the following context
+        Tu es un expert en revue de code Java.
+        
+        Consigne stricte : tu dois trouver et signaler AU MOINS un point 
+        d'amelioration ou probleme potentiel dans le code, meme mineur 
+        (edge case non teste, absence de setter, absence de validation, etc).
+        Ne te contente jamais de decrire le code sans emettre un avis critique.
+        
+        Pour chaque probleme trouve, cite la methode ou variable concernee.
+        
+        Contexte (code source) :
         {context}
-        Question: {question}
+        
+        Question : {question}
     """
     
     prompt = ChatPromptTemplate.from_template(template)
@@ -158,7 +188,7 @@ def main():
             try:
                 documents = ingest_java_folder(folder_path)
                 chunks = split_java_code(documents)
-                st.session_state.vector_db = add_to_vector_db(chunks, embedding_model)
+                st.session_state.vector_db = add_to_vector_db(chunks, embedding_model,persist_directory="chroma_db_java",collection_name="java_code")
                 st.success("Document indexé avec succès !")
             except Exception as e:
                 st.error(f"Erreur lors de l'indexation du document : {str(e)}")
@@ -173,7 +203,7 @@ def main():
 
         with st.spinner("Processing your question..."):
             try:
-                retriever, llm = retrieve_from_vector_db(st.session_state.vector_db, model)
+                retriever, llm = retrieve_from_vector_db_java(st.session_state.vector_db, model)
                 response = generate_response(retriever, llm, input_question)
                 st.write(response)
                 st.success("Done processing your question!")
