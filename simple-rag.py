@@ -38,7 +38,14 @@ def split_pdf(documents):
 
 def add_to_vector_db(chunks, embedding_model):
     if os.path.exists("chroma_db"):
-       print("la base existe deja")
+       if os.path.exists("chroma_db"):
+        vector_db = Chroma(
+            persist_directory="chroma_db",
+            embedding_function=OllamaEmbeddings(model=embedding_model),
+            collection_name="simple_rag"
+        )
+        logging.info("Base vectorielle existante chargee.")
+        return vector_db
     else:
         ollama.pull(embedding_model)  
         print(os.path.exists("chroma_db"))
