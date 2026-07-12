@@ -207,6 +207,24 @@ def liste_fichiers_a_change(folder_path, tracking_file="fichiers_indexes.json"):
     a_change = fichiers_actuels != fichiers_precedents
     return a_change, fichiers_actuels
 
+def generer_reponse_analyse(llm, code, resultat_analyse):
+    template = """
+        Tu es un expert en revue de code Java.
+        
+        Voici un extrait de code fourni par l'utilisateur :
+        {code}
+        
+        Voici les resultats d'une analyse automatique de ce code :
+        {resultat_analyse}
+        
+        En te basant sur ces resultats et sur le code, redige une explication
+        claire en francais : indique si le code presente des risques ou 
+        ameliorations possibles, et propose une correction concrete si pertinent.
+    """
+    prompt = ChatPromptTemplate.from_template(template)
+    chain = prompt | llm | StrOutputParser()
+    reponse = chain.invoke({"code": code, "resultat_analyse": str(resultat_analyse)})
+    return reponse
 
 def main():
     st.title("Hello, welcome to AI space!")
@@ -246,7 +264,9 @@ def main():
             try:
                 if est_du_code(input_question):
                     resultat_mcp = asyncio.run(appeler_analyser_code(input_question))
-                    st.write(resultat_mcp)
+                    llm = ChatOllama(model=model)
+                    reponse_finale = generer_reponse_analyse(llm, input_question, resultat_mcp)
+                    st.write(reponse_finale)
                 else:
                     retriever, llm = retrieve_from_vector_db_java(st.session_state.vector_db, model)
                     response = generate_response(retriever, llm, input_question)
