@@ -15,7 +15,10 @@ from langchain_community.document_loaders import DirectoryLoader
 from upload import getDoc 
 import streamlit as st
 from langchain_text_splitters import RecursiveCharacterTextSplitter, Language
-
+import asyncio
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+import json
 
 #doc_path = getDoc()
 folder_path="test_code"
@@ -177,6 +180,34 @@ def generate_response(retriever, llm, question):
     res = chain.invoke(question)
     return res
 
+async def appeler_analyser_code(code):
+    server_params = StdioServerParameters(
+        command="python",
+        args=["mcp-test.py"]
+    )
+    async with stdio_client(server_params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            result = await session.call_tool("analyser_code", {"code": code})
+            return result
+def est_du_code(texte):
+    indices_code = ["public ", "private ", "class ", "void ", "{", "}", ";"]
+    compteur = sum(1 for indice in indices_code if indice in texte)
+    return compteur >= 3
+
+def liste_fichiers_a_change(folder_path, tracking_file="fichiers_indexes.json"):
+    fichiers_actuels = sorted(os.listdir(folder_path))
+    
+    if not os.path.exists(tracking_file):
+        return True, fichiers_actuels
+    
+    with open(tracking_file, "r") as f:
+        fichiers_precedents = json.load(f)
+    
+    a_change = fichiers_actuels != fichiers_precedents
+    return a_change, fichiers_actuels
+
+
 def main():
     st.title("Hello, welcome to AI space!")
 
@@ -184,15 +215,25 @@ def main():
         st.session_state.vector_db = None
 
     if folder_path is not None and st.session_state.vector_db is None:
-        with st.spinner("Traitement du document en cours..."):
-            try:
-                documents = ingest_java_folder(folder_path)
-                chunks = split_java_code(documents)
-                st.session_state.vector_db = add_to_vector_db(chunks, embedding_model,persist_directory="chroma_db_java",collection_name="java_code")
-                st.success("Document indexé avec succès !")
-            except Exception as e:
-                st.error(f"Erreur lors de l'indexation du document : {str(e)}")
-                return
+        a_change, fichiers_actuels = liste_fichiers_a_change(folder_path)
+
+        if a_change:
+            with st.spinner("Nouveaux fichiers detectes, traitement en cours..."):
+                try:
+                    documents = ingest_java_folder(folder_path)
+                    chunks = split_java_code(documents)
+                    st.session_state.vector_db = add_to_vector_db(chunks, embedding_model, persist_directory="chroma_db_java", collection_name="java_code")
+
+                    with open("fichiers_indexes.json", "w") as f:
+                        json.dump(fichiers_actuels, f)
+
+                    st.success("Document indexé avec succès !")
+                except Exception as e:
+                    st.error(f"Erreur lors de l'indexation du document : {str(e)}")
+                    return
+        else:
+            st.session_state.vector_db = add_to_vector_db(None, embedding_model, persist_directory="chroma_db_java", collection_name="java_code")
+            st.info("Aucun nouveau fichier, base existante reutilisee.")
 
     input_question = st.text_input("Enter your question here:")
 
@@ -203,9 +244,13 @@ def main():
 
         with st.spinner("Processing your question..."):
             try:
-                retriever, llm = retrieve_from_vector_db_java(st.session_state.vector_db, model)
-                response = generate_response(retriever, llm, input_question)
-                st.write(response)
+                if est_du_code(input_question):
+                    resultat_mcp = asyncio.run(appeler_analyser_code(input_question))
+                    st.write(resultat_mcp)
+                else:
+                    retriever, llm = retrieve_from_vector_db_java(st.session_state.vector_db, model)
+                    response = generate_response(retriever, llm, input_question)
+                    st.write(response)
                 st.success("Done processing your question!")
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
