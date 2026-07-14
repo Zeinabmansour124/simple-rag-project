@@ -153,9 +153,12 @@ def retrieve_from_vector_db_java(vector_db, model):
     )
     return retriever, llm
 
-def generate_response(retriever, llm, question):
+def generate_response(retriever, llm, question, historique=""):
     template = """
         Tu es un expert en revue de code Java.
+        
+        Voici l'historique de la conversation jusqu'a present :
+        {historique}
         
         Consigne stricte : tu dois trouver et signaler AU MOINS un point 
         d'amelioration ou probleme potentiel dans le code, meme mineur 
@@ -172,7 +175,7 @@ def generate_response(retriever, llm, question):
     
     prompt = ChatPromptTemplate.from_template(template)
     chain = (
-        {"context": retriever, "question": RunnablePassthrough()}
+        {"context": retriever, "question": RunnablePassthrough(), "historique": lambda x: historique}
         | prompt
         | llm 
         | StrOutputParser()
@@ -226,8 +229,34 @@ def generer_reponse_analyse(llm, code, resultat_analyse):
     reponse = chain.invoke({"code": code, "resultat_analyse": str(resultat_analyse)})
     return reponse
 
+def formatter_historique(messages, limite=6):
+    historique_recent = messages[-limite:]
+    texte = ""
+    for m in historique_recent:
+        role = "Utilisateur" if m["role"] == "user" else "Assistant"
+        texte += f"{role}: {m['content']}\n"
+    return texte
+
 def main():
+
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
     st.title("Hello, welcome to AI space!")
+    st.markdown("""
+    <style>
+    button[data-testid="stChatInputSubmitButton"] {
+        background-color: skyblue !important;
+    }
+    button[data-testid="stChatInputSubmitButton"] svg {
+        fill: white !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.write(message["content"])
 
     if "vector_db" not in st.session_state:
         st.session_state.vector_db = None
@@ -253,12 +282,16 @@ def main():
             st.session_state.vector_db = add_to_vector_db(None, embedding_model, persist_directory="chroma_db_java", collection_name="java_code")
             st.info("Aucun nouveau fichier, base existante reutilisee.")
 
-    input_question = st.text_input("Enter your question here:")
+    input_question = st.chat_input("Enter your question here:")
 
     if input_question:
         if st.session_state.vector_db is None:
             st.warning("Merci d'uploader un document PDF avant de poser une question.")
             return
+
+        st.session_state.messages.append({"role": "user", "content": input_question})
+        with st.chat_message("user"):
+            st.write(input_question)
 
         with st.spinner("Processing your question..."):
             try:
@@ -266,11 +299,14 @@ def main():
                     resultat_mcp = asyncio.run(appeler_analyser_code(input_question))
                     llm = ChatOllama(model=model)
                     reponse_finale = generer_reponse_analyse(llm, input_question, resultat_mcp)
-                    st.write(reponse_finale)
                 else:
                     retriever, llm = retrieve_from_vector_db_java(st.session_state.vector_db, model)
-                    response = generate_response(retriever, llm, input_question)
-                    st.write(response)
+                    historique_texte = formatter_historique(st.session_state.messages)
+                    reponse_finale = generate_response(retriever, llm, input_question, historique_texte)
+                st.session_state.messages.append({"role": "assistant", "content": reponse_finale})
+                with st.chat_message("assistant"):
+                    st.write(reponse_finale)
+
                 st.success("Done processing your question!")
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
