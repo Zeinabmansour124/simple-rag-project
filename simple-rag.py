@@ -22,6 +22,7 @@ import json
 import yaml
 from yaml.loader import SafeLoader
 import streamlit_authenticator as stauth
+from auth_utils import charger_config, sauvegarder_config
 
 #doc_path = getDoc()
 folder_path="test_code"
@@ -241,112 +242,138 @@ def formatter_historique(messages, limite=6):
     return texte
 
 def main():
-    with open('config.yaml') as file:
-        config = yaml.load(file, Loader=SafeLoader)
+    # --- Chargement sécurisé du config ---
+    try:
+        config = charger_config("config.yaml")
+    except (FileNotFoundError, ValueError) as e:
+        st.error(str(e))
+        return
+
+    # --- Validation minimale de la structure ---
+    config.setdefault("preauthorized", {"emails": []})
+    if "credentials" not in config or "cookie" not in config:
+        st.error("Le fichier de configuration est incomplet (credentials/cookie manquants).")
+        return
+
+    # --- Clé de cookie récupérée depuis les secrets, pas depuis le YAML ---
+    try:
+        cookie_key = st.secrets["cookie"]["cookie_key"]
+    except Exception:
+        st.error("La clé de cookie est introuvable dans st.secrets. Vérifie .streamlit/secrets.toml.")
+        return
 
     authenticator = stauth.Authenticate(
         config['credentials'],
         config['cookie']['name'],
-        config['cookie']['key'],
+        cookie_key,
         config['cookie']['expiry_days']
     )
 
     authenticator.login()
 
-    if st.session_state.get('authentication_status') is False:
-        st.error("Nom d'utilisateur/mot de passe incorrect")
+    auth_status = st.session_state.get('authentication_status')
 
-    elif st.session_state.get('authentication_status') is None:
+    if auth_status is False:
+        st.error("Nom d'utilisateur/mot de passe incorrect")
+        return
+
+    elif auth_status is None:
         st.warning("Merci d'entrer votre nom d'utilisateur et mot de passe")
-        
+
         st.divider()
         st.subheader("Pas encore de compte ?")
         try:
             email, username, name = authenticator.register_user(pre_authorized=config['preauthorized']['emails'])
             if email:
                 st.success("Compte cree avec succes ! Vous pouvez maintenant vous connecter.")
-                with open('config.yaml', 'w') as file:
-                    yaml.dump(config, file, default_flow_style=False)
+                sauvegarder_config(config, "config.yaml")
         except Exception as e:
             st.error(e)
-        
+
         return
 
-    authenticator.logout()
+    elif auth_status is True:
+        authenticator.logout()
 
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+        username = st.session_state.get('username')
+        folder_path_utilisateur = f"test_code_{username}"
+        persist_directory_utilisateur = f"chroma_db_java_{username}"
+        tracking_file_utilisateur = f"fichiers_indexes_{username}.json"
+        os.makedirs(folder_path_utilisateur, exist_ok=True)
 
-    st.title("Hello, welcome to AI space!")
-    st.markdown("""
-    <style>
-    button[data-testid="stChatInputSubmitButton"] {
-        background-color: skyblue !important;
-    }
-    button[data-testid="stChatInputSubmitButton"] svg {
-        fill: white !important;
-    }
-    </style>
-""", unsafe_allow_html=True)
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
 
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.write(message["content"])
+        st.title("Hello, welcome to AI space!")
+        st.markdown("""
+        <style>
+        button[data-testid="stChatInputSubmitButton"] {
+            background-color: skyblue !important;
+        }
+        button[data-testid="stChatInputSubmitButton"] svg {
+            fill: white !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
 
-    if "vector_db" not in st.session_state:
-        st.session_state.vector_db = None
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.write(message["content"])
 
-    if folder_path is not None and st.session_state.vector_db is None:
-        a_change, fichiers_actuels = liste_fichiers_a_change(folder_path)
+        if "vector_db" not in st.session_state:
+            st.session_state.vector_db = None
 
-        if a_change:
-            with st.spinner("Nouveaux fichiers detectes, traitement en cours..."):
+        if folder_path_utilisateur is not None and st.session_state.vector_db is None:
+            a_change, fichiers_actuels = liste_fichiers_a_change(folder_path_utilisateur, tracking_file_utilisateur)
+
+            if a_change:
+                with st.spinner("Nouveaux fichiers detectes, traitement en cours..."):
+                    try:
+                        documents = ingest_java_folder(folder_path_utilisateur)
+                        chunks = split_java_code(documents)
+                        st.session_state.vector_db = add_to_vector_db(chunks, embedding_model, persist_directory=persist_directory_utilisateur, collection_name="java_code")
+
+                        with open(tracking_file_utilisateur, "w") as f:
+                            json.dump(fichiers_actuels, f)
+
+                        st.success("Document indexé avec succès !")
+                    except Exception as e:
+                        st.error(f"Erreur lors de l'indexation du document : {str(e)}")
+                        return
+            else:
+                st.session_state.vector_db = add_to_vector_db(None, embedding_model, persist_directory=persist_directory_utilisateur, collection_name="java_code")
+                st.info("Aucun nouveau fichier, base existante reutilisee.")
+
+        input_question = st.chat_input("Enter your question here:")
+
+        if input_question:
+            if st.session_state.vector_db is None:
+                st.warning("Merci d'uploader un document PDF avant de poser une question.")
+                return
+
+            st.session_state.messages.append({"role": "user", "content": input_question})
+            with st.chat_message("user"):
+                st.write(input_question)
+
+            with st.spinner("Processing your question..."):
                 try:
-                    documents = ingest_java_folder(folder_path)
-                    chunks = split_java_code(documents)
-                    st.session_state.vector_db = add_to_vector_db(chunks, embedding_model, persist_directory="chroma_db_java", collection_name="java_code")
+                    if est_du_code(input_question):
+                        resultat_mcp = asyncio.run(appeler_analyser_code(input_question))
+                        llm = ChatOllama(model=model)
+                        reponse_finale = generer_reponse_analyse(llm, input_question, resultat_mcp)
+                    else:
+                        retriever, llm = retrieve_from_vector_db_java(st.session_state.vector_db, model)
+                        historique_texte = formatter_historique(st.session_state.messages)
+                        reponse_finale = generate_response(retriever, llm, input_question, historique_texte)
+                    st.session_state.messages.append({"role": "assistant", "content": reponse_finale})
+                    with st.chat_message("assistant"):
+                        st.write(reponse_finale)
 
-                    with open("fichiers_indexes.json", "w") as f:
-                        json.dump(fichiers_actuels, f)
-
-                    st.success("Document indexé avec succès !")
+                    st.success("Done processing your question!")
                 except Exception as e:
-                    st.error(f"Erreur lors de l'indexation du document : {str(e)}")
-                    return
+                    st.error(f"An error occurred: {str(e)}")
         else:
-            st.session_state.vector_db = add_to_vector_db(None, embedding_model, persist_directory="chroma_db_java", collection_name="java_code")
-            st.info("Aucun nouveau fichier, base existante reutilisee.")
-
-    input_question = st.chat_input("Enter your question here:")
-
-    if input_question:
-        if st.session_state.vector_db is None:
-            st.warning("Merci d'uploader un document PDF avant de poser une question.")
-            return
-
-        st.session_state.messages.append({"role": "user", "content": input_question})
-        with st.chat_message("user"):
-            st.write(input_question)
-
-        with st.spinner("Processing your question..."):
-            try:
-                if est_du_code(input_question):
-                    resultat_mcp = asyncio.run(appeler_analyser_code(input_question))
-                    llm = ChatOllama(model=model)
-                    reponse_finale = generer_reponse_analyse(llm, input_question, resultat_mcp)
-                else:
-                    retriever, llm = retrieve_from_vector_db_java(st.session_state.vector_db, model)
-                    historique_texte = formatter_historique(st.session_state.messages)
-                    reponse_finale = generate_response(retriever, llm, input_question, historique_texte)
-                st.session_state.messages.append({"role": "assistant", "content": reponse_finale})
-                with st.chat_message("assistant"):
-                    st.write(reponse_finale)
-
-                st.success("Done processing your question!")
-            except Exception as e:
-                st.error(f"An error occurred: {str(e)}")
-    else:
-        st.info("Please enter a question to get started.")
+            st.info("Please enter a question to get started.")
 
 if __name__ == "__main__":
     main()

@@ -1,19 +1,24 @@
-credentials:
-  usernames:
-    zeinab:
-      email: zeinab@example.com
-      first_name: Zeinab
-      last_name: Mansour
-      password: motdepasse123
-      logged_in: False
-      failed_login_attempts: 0
-
 cookie:
   expiry_days: 30
   key: une_cle_secrete_random_a_toi
   name: mon_cookie_auth
-
+credentials:
+  usernames:
+    chakchouka1:
+      email: chakchouka1@example.com
+      first_name: chak
+      last_name: chouka
+      logged_in: false
+      password: $2b$12$bmAErPmiPGrplUNCYMtSFuEuTlvtMWhq1rw6pLixeOV.TlTkb0B2C
+      password_hint: 1234abcd#
+      roles: null
+    zeinab:
+      email: zeinab@example.com
+      failed_login_attempts: 0
+      first_name: Zeinab
+      last_name: Mansour
+      logged_in: false
+      password: $2b$12$4aBqVqA4XwZIr7uvG8hlJ.sqmnFm37gP9oM4yZzhksRUIlHf3TnnG
 preauthorized:
   emails:
-    - chakchouka1@example.com
-    - chakchouka2@example.com
+  - chakchouka2@example.com
