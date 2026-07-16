@@ -48,3 +48,7 @@ ollama_models/
 
 # MCP / Ollama
 mcp_servers/
+
+#authentification
+config.yaml
+.streamlit/secrets.toml
