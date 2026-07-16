@@ -19,6 +19,9 @@ import asyncio
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 import json
+import yaml
+from yaml.loader import SafeLoader
+import streamlit_authenticator as stauth
 
 #doc_path = getDoc()
 folder_path="test_code"
@@ -238,6 +241,38 @@ def formatter_historique(messages, limite=6):
     return texte
 
 def main():
+    with open('config.yaml') as file:
+        config = yaml.load(file, Loader=SafeLoader)
+
+    authenticator = stauth.Authenticate(
+        config['credentials'],
+        config['cookie']['name'],
+        config['cookie']['key'],
+        config['cookie']['expiry_days']
+    )
+
+    authenticator.login()
+
+    if st.session_state.get('authentication_status') is False:
+        st.error("Nom d'utilisateur/mot de passe incorrect")
+
+    elif st.session_state.get('authentication_status') is None:
+        st.warning("Merci d'entrer votre nom d'utilisateur et mot de passe")
+        
+        st.divider()
+        st.subheader("Pas encore de compte ?")
+        try:
+            email, username, name = authenticator.register_user(pre_authorized=config['preauthorized']['emails'])
+            if email:
+                st.success("Compte cree avec succes ! Vous pouvez maintenant vous connecter.")
+                with open('config.yaml', 'w') as file:
+                    yaml.dump(config, file, default_flow_style=False)
+        except Exception as e:
+            st.error(e)
+        
+        return
+
+    authenticator.logout()
 
     if "messages" not in st.session_state:
         st.session_state.messages = []

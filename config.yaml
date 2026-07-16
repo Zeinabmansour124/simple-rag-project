@@ -1,0 +1,19 @@
+credentials:
+  usernames:
+    zeinab:
+      email: zeinab@example.com
+      first_name: Zeinab
+      last_name: Mansour
+      password: motdepasse123
+      logged_in: False
+      failed_login_attempts: 0
+
+cookie:
+  expiry_days: 30
+  key: une_cle_secrete_random_a_toi
+  name: mon_cookie_auth
+
+preauthorized:
+  emails:
+    - chakchouka1@example.com
+    - chakchouka2@example.com
