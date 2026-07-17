@@ -23,6 +23,7 @@ import yaml
 from yaml.loader import SafeLoader
 import streamlit_authenticator as stauth
 from auth_utils import charger_config, sauvegarder_config
+import javalang
 
 folder_path = "test_code"
 model = "mistral:7b-instruct-q4_0"
@@ -192,8 +193,19 @@ sans aucun texte avant ou apres :
 """
     response = ollama.generate(model=llm_model, prompt=prompt, format="json")
     resultat = json.loads(response["response"])
-    return resultat["explication"], resultat["code_corrige"]
+    explication = resultat["explication"]
+    code_corrige = resultat["code_corrige"]
 
+    try:
+        javalang.parse.parse(code_corrige)
+        code_valide = True
+    except Exception:
+        code_valide = False
+
+    if not code_valide:
+        explication += "\n\n⚠️ Attention : le code corrige propose n'a pas pu etre valide syntaxiquement. Une verification manuelle est recommandee avant utilisation."
+
+    return explication, code_corrige, code_valide
 
 def sauvegarder_correction(explication, code_corrige, folder_path_utilisateur):
     contenu_final = f"""/*
@@ -371,10 +383,13 @@ def main():
                 try:
                     if est_du_code(input_question):
                         resultat_mcp = asyncio.run(appeler_analyser_code(input_question))
-                        explication, code_corrige = generer_reponse_analyse(model, input_question, resultat_mcp)
+                        explication, code_corrige, code_valide = generer_reponse_analyse(model, input_question, resultat_mcp)
                         reponse_finale = f"{explication}\n\n```java\n{code_corrige}\n```"
-                        sauvegarder_correction(explication, code_corrige, folder_path_utilisateur)
-                        st.info("Cette correction a ete ajoutee a votre base personnelle.")
+                        if code_valide:
+                            sauvegarder_correction(explication, code_corrige, folder_path_utilisateur)
+                            st.info("Cette correction a ete ajoutee a votre base personnelle.")
+                        else:
+                            st.warning("Le code corrige n'a pas pu etre valide syntaxiquement, il n'a pas ete ajoute a votre base personnelle.")
                     else:
                         context_docs, llm = retrieve_combined(st.session_state.vector_db, st.session_state.vector_db_personnelle, model, input_question)
                         historique_texte = formatter_historique(st.session_state.messages)
