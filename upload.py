@@ -1,17 +1,14 @@
 import streamlit as st
-import os 
+import os
 
-def getDoc():
-    st.title("PDF Uploader")
-    uploaded_document = st.file_uploader("Upload a PDF file", type=["pdf"])
+def getJavaFile(dossier_destination):
+    uploaded_document = st.file_uploader("Choisir un fichier .java", type=["java"])
     if uploaded_document is not None:
-        os.makedirs("uploaded_docs", exist_ok=True)    
-        with open(os.path.join("uploaded_docs", uploaded_document.name), "wb") as f:
+        os.makedirs(dossier_destination, exist_ok=True)
+        with open(os.path.join(dossier_destination, uploaded_document.name), "wb") as f:
             f.write(uploaded_document.getbuffer())
-            st.success("File uploaded successfully!")
-            doc_path = os.path.join("uploaded_docs", uploaded_document.name)
-
+            st.success(f"Fichier {uploaded_document.name} ajoute avec succes !")
+        doc_path = os.path.join(dossier_destination, uploaded_document.name)
     else:
-        st.warning("Please upload a PDF file.")
         doc_path = None
     return doc_path

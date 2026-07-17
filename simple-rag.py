@@ -12,7 +12,7 @@ from langchain_core.runnables import RunnablePassthrough
 from langchain_classic.retrievers.multi_query import MultiQueryRetriever
 from langchain_community.document_loaders import TextLoader
 from langchain_community.document_loaders import DirectoryLoader
-from upload import getDoc 
+from upload import getJavaFile
 import streamlit as st
 from langchain_text_splitters import RecursiveCharacterTextSplitter, Language
 import asyncio
@@ -136,6 +136,22 @@ def add_to_vector_db(chunks, embedding_model, persist_directory="chroma_db", col
 #        prompt=QUERY_PROMPT,
 #    )
 #    return retriever, llm
+
+def retrieve_combined(vector_db_commune, vector_db_personnelle, model, question):
+    docs_communs = []
+    docs_perso = []
+    
+    if vector_db_commune is not None:
+        retriever_commun, llm = retrieve_from_vector_db_java(vector_db_commune, model)
+        docs_communs = retriever_commun.invoke(question)
+    
+    if vector_db_personnelle is not None:
+        retriever_perso, llm = retrieve_from_vector_db_java(vector_db_personnelle, model)
+        docs_perso = retriever_perso.invoke(question)
+    
+    tous_les_docs = docs_communs + docs_perso
+    return tous_les_docs, llm
+
 def retrieve_from_vector_db_java(vector_db, model):
     llm = ChatOllama(model=model)
     QUERY_PROMPT = PromptTemplate(
@@ -156,8 +172,9 @@ def retrieve_from_vector_db_java(vector_db, model):
         prompt=QUERY_PROMPT,
     )
     return retriever, llm
+def generate_response(context_docs, llm, question, historique=""):
+    contexte_texte = "\n\n".join([doc.page_content for doc in context_docs])
 
-def generate_response(retriever, llm, question, historique=""):
     template = """
         Tu es un expert en revue de code Java.
         
@@ -178,13 +195,8 @@ def generate_response(retriever, llm, question, historique=""):
     """
     
     prompt = ChatPromptTemplate.from_template(template)
-    chain = (
-        {"context": retriever, "question": RunnablePassthrough(), "historique": lambda x: historique}
-        | prompt
-        | llm 
-        | StrOutputParser()
-    )
-    res = chain.invoke(question)
+    chain = prompt | llm | StrOutputParser()
+    res = chain.invoke({"context": contexte_texte, "question": question, "historique": historique})
     return res
 
 async def appeler_analyser_code(code):
@@ -240,7 +252,6 @@ def formatter_historique(messages, limite=6):
         role = "Utilisateur" if m["role"] == "user" else "Assistant"
         texte += f"{role}: {m['content']}\n"
     return texte
-
 def main():
     # --- Chargement sécurisé du config ---
     try:
@@ -320,29 +331,61 @@ def main():
             with st.chat_message(message["role"]):
                 st.write(message["content"])
 
+        # --- Base COMMUNE (partagee par tous les utilisateurs) ---
         if "vector_db" not in st.session_state:
             st.session_state.vector_db = None
 
-        if folder_path_utilisateur is not None and st.session_state.vector_db is None:
-            a_change, fichiers_actuels = liste_fichiers_a_change(folder_path_utilisateur, tracking_file_utilisateur)
+        if folder_path is not None and st.session_state.vector_db is None:
+            a_change, fichiers_actuels = liste_fichiers_a_change(folder_path)
 
             if a_change:
-                with st.spinner("Nouveaux fichiers detectes, traitement en cours..."):
+                with st.spinner("Nouveaux fichiers detectes dans la base commune, traitement en cours..."):
                     try:
-                        documents = ingest_java_folder(folder_path_utilisateur)
+                        documents = ingest_java_folder(folder_path)
                         chunks = split_java_code(documents)
-                        st.session_state.vector_db = add_to_vector_db(chunks, embedding_model, persist_directory=persist_directory_utilisateur, collection_name="java_code")
+                        st.session_state.vector_db = add_to_vector_db(chunks, embedding_model, persist_directory="chroma_db_java", collection_name="java_code")
 
-                        with open(tracking_file_utilisateur, "w") as f:
+                        with open("fichiers_indexes.json", "w") as f:
                             json.dump(fichiers_actuels, f)
-
-                        st.success("Document indexé avec succès !")
                     except Exception as e:
-                        st.error(f"Erreur lors de l'indexation du document : {str(e)}")
+                        st.error(f"Erreur lors de l'indexation de la base commune : {str(e)}")
                         return
             else:
-                st.session_state.vector_db = add_to_vector_db(None, embedding_model, persist_directory=persist_directory_utilisateur, collection_name="java_code")
-                st.info("Aucun nouveau fichier, base existante reutilisee.")
+                st.session_state.vector_db = add_to_vector_db(None, embedding_model, persist_directory="chroma_db_java", collection_name="java_code")
+
+        # --- Base PERSONNELLE (propre a chaque utilisateur) ---
+        if "vector_db_personnelle" not in st.session_state:
+            st.session_state.vector_db_personnelle = None
+
+        fichiers_perso = os.listdir(folder_path_utilisateur)
+        if fichiers_perso:
+            a_change_perso, fichiers_actuels_perso = liste_fichiers_a_change(folder_path_utilisateur, tracking_file_utilisateur)
+
+            if a_change_perso:
+                with st.spinner("Traitement de vos fichiers personnels..."):
+                    try:
+                        documents_perso = ingest_java_folder(folder_path_utilisateur)
+                        chunks_perso = split_java_code(documents_perso)
+                        st.session_state.vector_db_personnelle = add_to_vector_db(chunks_perso, embedding_model, persist_directory=persist_directory_utilisateur, collection_name="java_code_perso")
+
+                        with open(tracking_file_utilisateur, "w") as f:
+                            json.dump(fichiers_actuels_perso, f)
+                    except Exception as e:
+                        st.error(f"Erreur lors de l'indexation de vos fichiers personnels : {str(e)}")
+            else:
+                st.session_state.vector_db_personnelle = add_to_vector_db(None, embedding_model, persist_directory=persist_directory_utilisateur, collection_name="java_code_perso")
+        else:
+            st.info("Vous n'avez pas encore de fichiers personnels. Seule la base commune sera utilisee.")
+
+        st.divider()
+        if "afficher_upload" not in st.session_state:
+            st.session_state.afficher_upload = False
+
+        if st.button("➕ Ajouter un fichier"):
+            st.session_state.afficher_upload = not st.session_state.afficher_upload
+
+        if st.session_state.afficher_upload:
+            getJavaFile(folder_path_utilisateur)
 
         input_question = st.chat_input("Enter your question here:")
 
@@ -362,10 +405,10 @@ def main():
                         llm = ChatOllama(model=model)
                         reponse_finale = generer_reponse_analyse(llm, input_question, resultat_mcp)
                     else:
-                        retriever, llm = retrieve_from_vector_db_java(st.session_state.vector_db, model)
+                        context_docs, llm = retrieve_combined(st.session_state.vector_db, st.session_state.vector_db_personnelle, model, input_question)
                         historique_texte = formatter_historique(st.session_state.messages)
-                        reponse_finale = generate_response(retriever, llm, input_question, historique_texte)
-                    st.session_state.messages.append({"role": "assistant", "content": reponse_finale})
+                        reponse_finale = generate_response(context_docs, llm, input_question, historique_texte)                    
+                        st.session_state.messages.append({"role": "assistant", "content": reponse_finale})
                     with st.chat_message("assistant"):
                         st.write(reponse_finale)
 

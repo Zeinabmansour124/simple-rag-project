@@ -12,6 +12,14 @@ credentials:
       password: $2b$12$bmAErPmiPGrplUNCYMtSFuEuTlvtMWhq1rw6pLixeOV.TlTkb0B2C
       password_hint: 1234abcd#
       roles: null
+    chakchouka2:
+      email: chakchouka2@example.com
+      first_name: chak
+      last_name: chouka
+      logged_in: false
+      password: $2b$12$UiCSv.o9mGKV0buScC0poerK7QYcdHe0Y0Lpv7Nwnik0C7wxmfO4m
+      password_hint: gh
+      roles: null
     zeinab:
       email: zeinab@example.com
       failed_login_attempts: 0
@@ -21,4 +29,4 @@ credentials:
       password: $2b$12$4aBqVqA4XwZIr7uvG8hlJ.sqmnFm37gP9oM4yZzhksRUIlHf3TnnG
 preauthorized:
   emails:
-  - chakchouka2@example.com
+  - chakchouka1@example.com
