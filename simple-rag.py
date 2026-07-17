@@ -24,23 +24,11 @@ from yaml.loader import SafeLoader
 import streamlit_authenticator as stauth
 from auth_utils import charger_config, sauvegarder_config
 
-#doc_path = getDoc()
-folder_path="test_code"
+folder_path = "test_code"
 model = "mistral:7b-instruct-q4_0"
 embedding_model = "nomic-embed-text"
 
 logging.basicConfig(level=logging.INFO)
-
-#def ingest_pdf(doc_path, model):
-#    if doc_path:
-#        loader = PDFPlumberLoader(file_path=doc_path)
-#        documents = loader.load()
-#        logging.info("PDF file loaded successfully")
-#    else:
-#        logging.error("Invalid PDF file path provided")
-#        raise ValueError("chemin invalide")
-    
-#    return documents
 
 
 def ingest_java_folder(folder_path):
@@ -53,12 +41,6 @@ def ingest_java_folder(folder_path):
     return documents
 
 
-#def split_pdf(documents):
-#    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=300)
-#    chunks = text_splitter.split_documents(documents)
-#    logging.info("Documents split successfully")
-#    return chunks
-
 def split_java_code(documents):
     text_splitter = RecursiveCharacterTextSplitter.from_language(
         language=Language.JAVA,
@@ -68,31 +50,6 @@ def split_java_code(documents):
     chunks = text_splitter.split_documents(documents)
     return chunks
 
-#def add_to_vector_db(chunks, embedding_model):
-#    if os.path.exists("chroma_db"):
-#       if os.path.exists("chroma_db"):
-#        vector_db = Chroma(
-#            persist_directory="chroma_db",
-#            embedding_function=OllamaEmbeddings(model=embedding_model),
-#            collection_name="simple_rag"
-#        )
-#        logging.info("Base vectorielle existante chargee.")
-#        return vector_db
-#    else:
-#        ollama.pull(embedding_model)  
-#        print(os.path.exists("chroma_db"))
-#        try:
-#            vector_db = Chroma.from_documents(
-#                documents=chunks,
-#                embedding=OllamaEmbeddings(model=embedding_model),
-#                persist_directory="chroma_db",
-#                collection_name="simple_rag"
-#                                )
-#            logging.info(f"Vector DB créée avec {len(chunks)} chunks.")
-#            return vector_db
-#        except Exception as e:
-#            logging.error(f"Erreur lors de la création de la vector DB : {str(e)}")
-#            raise
 
 def add_to_vector_db(chunks, embedding_model, persist_directory="chroma_db", collection_name="simple_rag"):
     if os.path.exists(persist_directory):
@@ -118,39 +75,22 @@ def add_to_vector_db(chunks, embedding_model, persist_directory="chroma_db", col
             logging.error(f"Erreur lors de la création de la vector DB : {str(e)}")
             raise
 
-#def retrieve_from_vector_db(vector_db, model):
-#    llm = ChatOllama(model=model)
-#    QUERY_PROMPT = PromptTemplate(
-#        input_variables=["question"],
-#        template=""" You are an AI language model assistant. Your task is to generate five 
-#        different versions of the given user question to retrieve relevant documents from 
-#        the vector database. By generating multiple versions of the question, your goal is 
-#        to help the user overcome some of the limitations of the distance-based similarity search.
-#        Provide these alternative questions separated by new lines.
-#        Original question: {question}
-#        """ 
-#    )
-#    retriever = MultiQueryRetriever.from_llm(
-#        vector_db.as_retriever(),
-#        llm=llm,
-#        prompt=QUERY_PROMPT,
-#    )
-#    return retriever, llm
 
 def retrieve_combined(vector_db_commune, vector_db_personnelle, model, question):
     docs_communs = []
     docs_perso = []
-    
+
     if vector_db_commune is not None:
         retriever_commun, llm = retrieve_from_vector_db_java(vector_db_commune, model)
         docs_communs = retriever_commun.invoke(question)
-    
+
     if vector_db_personnelle is not None:
         retriever_perso, llm = retrieve_from_vector_db_java(vector_db_personnelle, model)
         docs_perso = retriever_perso.invoke(question)
-    
+
     tous_les_docs = docs_communs + docs_perso
     return tous_les_docs, llm
+
 
 def retrieve_from_vector_db_java(vector_db, model):
     llm = ChatOllama(model=model)
@@ -164,7 +104,7 @@ def retrieve_from_vector_db_java(vector_db, model):
         common code-review terminology (bug, error, exception, refactor, best practice).
         Provide these alternative questions separated by new lines.
         Original question: {question}
-        """ 
+        """
     )
     retriever = MultiQueryRetriever.from_llm(
         vector_db.as_retriever(),
@@ -172,6 +112,8 @@ def retrieve_from_vector_db_java(vector_db, model):
         prompt=QUERY_PROMPT,
     )
     return retriever, llm
+
+
 def generate_response(context_docs, llm, question, historique=""):
     contexte_texte = "\n\n".join([doc.page_content for doc in context_docs])
 
@@ -193,11 +135,12 @@ def generate_response(context_docs, llm, question, historique=""):
         
         Question : {question}
     """
-    
+
     prompt = ChatPromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
     res = chain.invoke({"context": contexte_texte, "question": question, "historique": historique})
     return res
+
 
 async def appeler_analyser_code(code):
     server_params = StdioServerParameters(
@@ -209,41 +152,65 @@ async def appeler_analyser_code(code):
             await session.initialize()
             result = await session.call_tool("analyser_code", {"code": code})
             return result
+
+
 def est_du_code(texte):
     indices_code = ["public ", "private ", "class ", "void ", "{", "}", ";"]
     compteur = sum(1 for indice in indices_code if indice in texte)
     return compteur >= 3
 
+
 def liste_fichiers_a_change(folder_path, tracking_file="fichiers_indexes.json"):
     fichiers_actuels = sorted(os.listdir(folder_path))
-    
+
     if not os.path.exists(tracking_file):
         return True, fichiers_actuels
-    
+
     with open(tracking_file, "r") as f:
         fichiers_precedents = json.load(f)
-    
+
     a_change = fichiers_actuels != fichiers_precedents
     return a_change, fichiers_actuels
 
-def generer_reponse_analyse(llm, code, resultat_analyse):
-    template = """
-        Tu es un expert en revue de code Java.
-        
-        Voici un extrait de code fourni par l'utilisateur :
-        {code}
-        
-        Voici les resultats d'une analyse automatique de ce code :
-        {resultat_analyse}
-        
-        En te basant sur ces resultats et sur le code, redige une explication
-        claire en francais : indique si le code presente des risques ou 
-        ameliorations possibles, et propose une correction concrete si pertinent.
-    """
-    prompt = ChatPromptTemplate.from_template(template)
-    chain = prompt | llm | StrOutputParser()
-    reponse = chain.invoke({"code": code, "resultat_analyse": str(resultat_analyse)})
-    return reponse
+
+def generer_reponse_analyse(llm_model, code, resultat_analyse):
+    prompt = f"""Tu es un expert en revue de code Java.
+
+Voici un extrait de code fourni par l'utilisateur :
+{code}
+
+Voici les resultats d'une analyse automatique de ce code :
+{resultat_analyse}
+
+Consigne stricte : tu dois trouver et signaler AU MOINS un point d'amelioration
+ou probleme potentiel dans le code, meme mineur (edge case non teste, absence
+de validation, etc). Ne te contente jamais de dire que tout est correct.
+
+Reponds UNIQUEMENT avec un objet JSON valide, exactement dans ce format,
+sans aucun texte avant ou apres :
+{{"explication": "ton explication en francais ici", "code_corrige": "le code Java corrige complet ici"}}
+"""
+    response = ollama.generate(model=llm_model, prompt=prompt, format="json")
+    resultat = json.loads(response["response"])
+    return resultat["explication"], resultat["code_corrige"]
+
+
+def sauvegarder_correction(explication, code_corrige, folder_path_utilisateur):
+    contenu_final = f"""/*
+ * NOTES DE CORRECTION AUTOMATIQUE :
+ * {explication}
+ */
+
+{code_corrige}
+"""
+    nom_fichier = f"correction_{len(os.listdir(folder_path_utilisateur)) + 1}.java"
+    chemin = os.path.join(folder_path_utilisateur, nom_fichier)
+
+    with open(chemin, "w", encoding="utf-8") as f:
+        f.write(contenu_final)
+
+    return True
+
 
 def formatter_historique(messages, limite=6):
     historique_recent = messages[-limite:]
@@ -252,6 +219,8 @@ def formatter_historique(messages, limite=6):
         role = "Utilisateur" if m["role"] == "user" else "Assistant"
         texte += f"{role}: {m['content']}\n"
     return texte
+
+
 def main():
     # --- Chargement sécurisé du config ---
     try:
@@ -402,13 +371,16 @@ def main():
                 try:
                     if est_du_code(input_question):
                         resultat_mcp = asyncio.run(appeler_analyser_code(input_question))
-                        llm = ChatOllama(model=model)
-                        reponse_finale = generer_reponse_analyse(llm, input_question, resultat_mcp)
+                        explication, code_corrige = generer_reponse_analyse(model, input_question, resultat_mcp)
+                        reponse_finale = f"{explication}\n\n```java\n{code_corrige}\n```"
+                        sauvegarder_correction(explication, code_corrige, folder_path_utilisateur)
+                        st.info("Cette correction a ete ajoutee a votre base personnelle.")
                     else:
                         context_docs, llm = retrieve_combined(st.session_state.vector_db, st.session_state.vector_db_personnelle, model, input_question)
                         historique_texte = formatter_historique(st.session_state.messages)
-                        reponse_finale = generate_response(context_docs, llm, input_question, historique_texte)                    
-                        st.session_state.messages.append({"role": "assistant", "content": reponse_finale})
+                        reponse_finale = generate_response(context_docs, llm, input_question, historique_texte)
+
+                    st.session_state.messages.append({"role": "assistant", "content": reponse_finale})
                     with st.chat_message("assistant"):
                         st.write(reponse_finale)
 
@@ -417,6 +389,7 @@ def main():
                     st.error(f"An error occurred: {str(e)}")
         else:
             st.info("Please enter a question to get started.")
+
 
 if __name__ == "__main__":
     main()
