@@ -28,6 +28,7 @@ import javalang
 folder_path = "test_code"
 model = "mistral:7b-instruct-q4_0"
 embedding_model = "nomic-embed-text"
+ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 logging.basicConfig(level=logging.INFO)
 
@@ -56,7 +57,7 @@ def add_to_vector_db(chunks, embedding_model, persist_directory="chroma_db", col
     if os.path.exists(persist_directory):
         vector_db = Chroma(
             persist_directory=persist_directory,
-            embedding_function=OllamaEmbeddings(model=embedding_model),
+            embedding_function=OllamaEmbeddings(model=embedding_model, base_url=ollama_base_url)
             collection_name=collection_name
         )
         logging.info("Base vectorielle existante chargee.")
@@ -66,7 +67,7 @@ def add_to_vector_db(chunks, embedding_model, persist_directory="chroma_db", col
         try:
             vector_db = Chroma.from_documents(
                 documents=chunks,
-                embedding=OllamaEmbeddings(model=embedding_model),
+                embedding=OllamaEmbeddings(model=embedding_model, base_url=ollama_base_url),
                 persist_directory=persist_directory,
                 collection_name=collection_name
             )
@@ -94,7 +95,7 @@ def retrieve_combined(vector_db_commune, vector_db_personnelle, model, question)
 
 
 def retrieve_from_vector_db_java(vector_db, model):
-    llm = ChatOllama(model=model)
+    llm = ChatOllama(model=model, base_url=ollama_base_url)
     QUERY_PROMPT = PromptTemplate(
         input_variables=["question"],
         template=""" You are an AI language model assistant specialized in Java code analysis.
