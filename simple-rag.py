@@ -29,6 +29,7 @@ folder_path = "test_code"
 model = "mistral:7b-instruct-q4_0"
 embedding_model = "nomic-embed-text"
 ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+client_ollama = ollama.Client(host=ollama_base_url)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -53,13 +54,36 @@ def split_java_code(documents):
     return chunks
 
 
+@st.cache_resource
 def add_to_vector_db(chunks, embedding_model, persist_directory="chroma_db", collection_name="simple_rag"):
     if os.path.exists(persist_directory):
         vector_db = Chroma(
             persist_directory=persist_directory,
-            embedding_function=OllamaEmbeddings(model=embedding_model, base_url=ollama_base_url)
+            embedding_function=OllamaEmbeddings(model=embedding_model, base_url=ollama_base_url),
             collection_name=collection_name
         )
+        logging.info("Base vectorielle existante chargee.")
+        return vector_db
+    else:
+        ollama.pull(embedding_model)
+        try:
+            vector_db = Chroma.from_documents(
+                documents=chunks,
+                embedding=OllamaEmbeddings(model=embedding_model, base_url=ollama_base_url),
+                persist_directory=persist_directory,
+                collection_name=collection_name
+            )
+            logging.info(f"Vector DB créée avec {len(chunks)} chunks.")
+            return vector_db
+        except Exception as e:
+            logging.error(f"Erreur lors de la création de la vector DB : {str(e)}")
+            raise
+    if os.path.exists(persist_directory):
+        vector_db = Chroma(
+            persist_directory=persist_directory,
+            embedding_function=OllamaEmbeddings(model=embedding_model , base_url=ollama_base_url),
+            collection_name=collection_name
+            )
         logging.info("Base vectorielle existante chargee.")
         return vector_db
     else:
@@ -192,7 +216,7 @@ Reponds UNIQUEMENT avec un objet JSON valide, exactement dans ce format,
 sans aucun texte avant ou apres :
 {{"explication": "ton explication en francais ici", "code_corrige": "le code Java corrige complet ici"}}
 """
-    response = ollama.generate(model=llm_model, prompt=prompt, format="json")
+    response = client_ollama.generate(model=llm_model, prompt=prompt, format="json")
     resultat = json.loads(response["response"])
     explication = resultat["explication"]
     code_corrige = resultat["code_corrige"]
