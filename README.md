@@ -11,7 +11,7 @@ C'est un chatbot qui tourne entièrement en local (Ollama + Mistral), avec un co
 - **Répondre à des questions** sur du code Java déjà indexé — "que fait cette classe", "comment est géré tel cas" — en allant chercher les passages pertinents avant de répondre.
 - **Relire un extrait de code** qu'on lui colle directement dans le chat, repérer un problème (même mineur), et proposer une correction.
 - **Se souvenir de la conversation** — une deuxième question qui fait référence à la première est comprise normalement.
-- **Distinguer les utilisateurs** — chacun a ses propres fichiers et sa propre mémoire, en plus d'une base commune partagée par toute l'équipe.
+- **Distinguer les utilisateurs** — chacun a ses propres fichiers et sa propre mémoire, strictement privés, en plus d'une base commune partagée par toute l'équipe. Un fichier ajouté par un utilisateur n'est jamais visible ni utilisé pour répondre aux questions d'un autre utilisateur.
 - **S'améliorer avec l'usage** — une correction validée est automatiquement ajoutée à la base personnelle de celui qui l'a demandée, pour que le contexte s'accumule au fil du temps.
 
 ## Comment c'est construit
@@ -38,7 +38,7 @@ Question posée dans le chat
       la réponse finale
 ```
 
-**La base de connaissance** est en deux parties : une base commune, partagée par toute l'équipe (pour l'instant alimentée par du code de démonstration, en attendant d'y mettre du vrai code T24), et une base personnelle par utilisateur, qui grandit avec ses propres fichiers et ses propres corrections.
+**La base de connaissance** est en deux parties : une base commune, partagée par toute l'équipe (pour l'instant alimentée par du code de démonstration, en attendant d'y mettre du vrai code T24), et une base personnelle par utilisateur, strictement privée, qui grandit avec ses propres fichiers et ses propres corrections. Au moment de répondre, le système interroge les deux bases et combine les résultats, mais la base personnelle d'un utilisateur n'est jamais accessible à un autre.
 
 **Le serveur MCP** est ce qui distingue ce projet d'un simple RAG : plutôt que de laisser le modèle deviner la structure d'un code à partir de son texte brut, un vrai parseur Java (`javalang`) l'analyse d'abord — noms de méthodes, paramètres, exceptions — et ces faits vérifiés sont donnés au modèle avant qu'il ne rédige quoi que ce soit. Ça limite le risque qu'il invente des détails qui n'existent pas dans le code.
 
@@ -76,6 +76,17 @@ streamlit run simple-rag.py
 
 L'application s'ouvre sur `http://localhost:8501`.
 
+### Avec Docker
+
+Une image Docker de l'application est disponible (`Dockerfile` à la racine du projet) :
+
+```bash
+docker build -t simple-rag-app .
+docker run --rm -p 8501:8501 simple-rag-app
+```
+
+Ollama reste installé et lancé sur la machine hôte (pas conteneurisé), l'application y accède via `host.docker.internal`. La construction de l'image a été validée avec succès ; le fonctionnement complet en parallèle d'Ollama n'a pas pu être testé de bout en bout en conditions réelles, en raison d'une contrainte temporaire de RAM sur la machine de développement (8 Go au lieu de 16 Go, suite à une panne matérielle en cours de résolution).
+
 ## Ce qui compose le projet
 
 ```
@@ -86,8 +97,9 @@ upload.py                    → le composant d'ajout de fichiers
 auth_utils.py                 → lecture/écriture de la config d'authentification
 config.yaml                    → comptes et liste blanche (à ne pas versionner)
 test_code/                      → base de code commune
-test_code_{utilisateur}/         → base personnelle de chacun
+test_code_{utilisateur}/         → base personnelle de chacun (privée)
 chroma_db_java*/                  → les bases vectorielles, persistantes sur disque
+Dockerfile                          → construction de l'image de l'application
 ```
 
 ## Ce que le projet fait moins bien, pour l'instant
@@ -102,11 +114,13 @@ Je préfère le dire clairement plutôt que de le découvrir en démo :
 
 **Base commune et base personnelle ne sont pas hiérarchisées.** Les deux sont interrogées et combinées à chaque question, sans priorité claire entre elles — un fichier personnel court peut parfois être éclipsé par un contenu plus riche de la base commune.
 
+**Dockerisation non validée en conditions réelles**, comme précisé plus haut, en raison d'une contrainte matérielle temporaire.
+
 ## Et ensuite
 
 Quelques pistes pour la suite, si le temps le permet :
 
-- Finir la dockerisation de l'application (le `Dockerfile` existe déjà, il reste à stabiliser la construction de l'image)
+- Valider la dockerisation complète une fois la RAM de la machine restaurée
 - Remplacer la base commune par du vrai code T24
 - Comparer les résultats avec un modèle non quantifié, pour mesurer précisément l'écart de qualité
 - Introduire une vraie priorité entre base personnelle et base commune dans la recherche
