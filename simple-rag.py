@@ -30,6 +30,8 @@ model = "mistral:7b-instruct-q4_0"
 embedding_model = "nomic-embed-text"
 ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 client_ollama = ollama.Client(host=ollama_base_url)
+ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+os.environ["OLLAMA_HOST"] = ollama_base_url
 
 logging.basicConfig(level=logging.INFO)
 
@@ -38,11 +40,11 @@ def ingest_java_folder(folder_path):
     loader = DirectoryLoader(
         folder_path,
         glob="*.java",
-        loader_cls=TextLoader
+        loader_cls=TextLoader,
+        loader_kwargs={"autodetect_encoding": True}
     )
     documents = loader.load()
     return documents
-
 
 def split_java_code(documents):
     text_splitter = RecursiveCharacterTextSplitter.from_language(
