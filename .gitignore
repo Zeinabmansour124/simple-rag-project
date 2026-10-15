@@ -38,6 +38,7 @@ ollama_models/
 *.docx
 *.zip
 *.tar.gz
+config.yaml
 
 # Jupyter
 .ipynb_checkpoints/
